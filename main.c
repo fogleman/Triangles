@@ -49,6 +49,16 @@ GLuint make_triangle_buffer() {
     return buffer;
 }
 
+void update_triangle_buffer(GLuint buffer) {
+    float data[6];
+    for (int i = 0; i < 6; i++) {
+        data[i] = rand_int(SIZE);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 6, data);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void draw_rect(
     GLuint position_buffer, GLuint position_loc,
     GLuint uv_buffer, GLuint uv_loc,
@@ -73,6 +83,19 @@ void draw_triangles(GLuint buffer, GLuint position_loc, int size, int count) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glDrawArrays(GL_TRIANGLES, 0, count);
     glDisableVertexAttribArray(position_loc);
+}
+
+double compute_score(GLubyte *data) {
+    double result = 0;
+    int n = SIZE * SIZE;
+    for (int i = 0; i < n; i++) {
+        int j = i * 4;
+        result += data[j] * data[j] / 16384.0; j++;
+        result += data[j] * data[j] / 16384.0; j++;
+        result += data[j] * data[j] / 16384.0; j++;
+        j++;
+    }
+    return result / n;
 }
 
 int main(int argc, char **argv) {
@@ -167,6 +190,17 @@ int main(int argc, char **argv) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+    GLuint best_texture;
+    glGenTextures(1, &best_texture);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, best_texture);
+    glTexImage2D(
+        GL_TEXTURE_2D, 0, GL_RGBA,
+        SIZE, SIZE,
+        0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
     GLuint render_buffer;
     glGenFramebuffers(1, &render_buffer);
     glBindFramebuffer(GL_FRAMEBUFFER, render_buffer);
@@ -179,6 +213,13 @@ int main(int argc, char **argv) {
     glBindFramebuffer(GL_FRAMEBUFFER, diff_buffer);
     glFramebufferTexture(
         GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, diff_texture, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    GLuint best_buffer;
+    glGenFramebuffers(1, &best_buffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, best_buffer);
+    glFramebufferTexture(
+        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, best_texture, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     FPS fps = {0, 0};
@@ -205,6 +246,7 @@ int main(int argc, char **argv) {
     glUniform1i(diff_sampler2_loc, 2);
 
     GLubyte *diff_data = calloc(SIZE * SIZE * 4, sizeof(GLubyte));
+    double best = 1e9;
 
     while (glfwGetWindowParam(GLFW_OPENED)) {
         update_fps(&fps, 1);
@@ -217,9 +259,10 @@ int main(int argc, char **argv) {
             position_buffer, quad_position_loc,
             uv_buffer, quad_uv_loc, 2, 6);
         glUseProgram(triangle_program);
-        glUniform4f(triangle_color_loc, 1, 1, 0, 0.5);
+        glUniform4f(triangle_color_loc, rand_double(), rand_double(), rand_double(), 0.5);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        update_triangle_buffer(buffer);
         draw_triangles(buffer, triangle_position_loc, 2, 3);
         glDisable(GL_BLEND);
 
@@ -232,11 +275,23 @@ int main(int argc, char **argv) {
 
         glActiveTexture(GL_TEXTURE3);
         glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, diff_data);
+        double score = compute_score(diff_data);
+        if (score < best) {
+            best = score;
+            printf("%f\n", score);
+            glBindFramebuffer(GL_FRAMEBUFFER, best_buffer);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glUseProgram(quad_program);
+            glUniform1i(quad_sampler_loc, 2);
+            draw_rect(
+                position_buffer, quad_position_loc,
+                uv_buffer, quad_uv_loc, 2, 6);
+        }
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(quad_program);
-        glUniform1i(quad_sampler_loc, 2);
+        glUniform1i(quad_sampler_loc, 4);
         draw_rect(
             position_buffer, quad_position_loc,
             uv_buffer, quad_uv_loc, 2, 6);
