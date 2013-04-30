@@ -7,6 +7,8 @@
 
 #include <GL/glfw.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "util.h"
 
 #define SIZE 512
@@ -133,23 +135,24 @@ int main(int argc, char **argv) {
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, base_texture);
     glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_RGB,
+        GL_TEXTURE_2D, 0, GL_RGBA,
         SIZE, SIZE,
-        0, GL_RGB, GL_FLOAT, 0);
+        0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    GLubyte empty_data[SIZE * SIZE * 3] = {0};
+    GLubyte *empty_data = calloc(SIZE * SIZE * 3, sizeof(GLubyte));
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIZE, SIZE, GL_RGB,
         GL_UNSIGNED_BYTE, empty_data);
+    free(empty_data);
 
     GLuint render_texture;
     glGenTextures(1, &render_texture);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, render_texture);
     glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_RGB,
+        GL_TEXTURE_2D, 0, GL_RGBA,
         SIZE, SIZE,
-        0, GL_RGB, GL_FLOAT, 0);
+        0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -158,17 +161,24 @@ int main(int argc, char **argv) {
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, diff_texture);
     glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_RGB,
+        GL_TEXTURE_2D, 0, GL_RGBA,
         SIZE, SIZE,
-        0, GL_RGB, GL_FLOAT, 0);
+        0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    GLuint frame_buffer;
-    glGenFramebuffers(1, &frame_buffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer);
+    GLuint render_buffer;
+    glGenFramebuffers(1, &render_buffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, render_buffer);
     glFramebufferTexture(
         GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, render_texture, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    GLuint diff_buffer;
+    glGenFramebuffers(1, &diff_buffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, diff_buffer);
+    glFramebufferTexture(
+        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, diff_texture, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     FPS fps = {0, 0};
@@ -179,8 +189,6 @@ int main(int argc, char **argv) {
     make_rect_buffer(&position_buffer, &uv_buffer);
     GLuint buffer = make_triangle_buffer();
 
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glClearColor(1, 1, 1, 1);
     glViewport(0, 0, SIZE, SIZE);
     mat_ortho(matrix, 0, SIZE, 0, SIZE, -1, 1);
@@ -196,10 +204,12 @@ int main(int argc, char **argv) {
     glUniform1i(diff_sampler1_loc, 0);
     glUniform1i(diff_sampler2_loc, 2);
 
+    GLubyte *diff_data = calloc(SIZE * SIZE * 4, sizeof(GLubyte));
+
     while (glfwGetWindowParam(GLFW_OPENED)) {
         update_fps(&fps, 1);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, render_buffer);
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(quad_program);
         glUniform1i(quad_sampler_loc, 1);
@@ -208,18 +218,33 @@ int main(int argc, char **argv) {
             uv_buffer, quad_uv_loc, 2, 6);
         glUseProgram(triangle_program);
         glUniform4f(triangle_color_loc, 1, 1, 0, 0.5);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         draw_triangles(buffer, triangle_position_loc, 2, 3);
+        glDisable(GL_BLEND);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, diff_buffer);
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(diff_program);
         draw_rect(
             position_buffer, diff_position_loc,
             uv_buffer, diff_uv_loc, 2, 6);
 
+        glActiveTexture(GL_TEXTURE3);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, diff_data);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glUseProgram(quad_program);
+        glUniform1i(quad_sampler_loc, 2);
+        draw_rect(
+            position_buffer, quad_position_loc,
+            uv_buffer, quad_uv_loc, 2, 6);
+
         glfwSwapBuffers();
     }
 
+    free(diff_data);
     glfwTerminate();
     return 0;
 }
