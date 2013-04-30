@@ -85,17 +85,17 @@ void draw_triangles(GLuint buffer, GLuint position_loc, int size, int count) {
     glDisableVertexAttribArray(position_loc);
 }
 
-double compute_score(GLubyte *data) {
+double compute_score(GLubyte *a, GLubyte *b) {
     double result = 0;
     int n = SIZE * SIZE;
     for (int i = 0; i < n; i++) {
         int j = i * 4;
-        result += data[j] * data[j] / 16384.0; j++;
-        result += data[j] * data[j] / 16384.0; j++;
-        result += data[j] * data[j] / 16384.0; j++;
+        result += (a[j] - b[j]) * (a[j] - b[j]); j++;
+        result += (a[j] - b[j]) * (a[j] - b[j]); j++;
+        result += (a[j] - b[j]) * (a[j] - b[j]); j++;
         j++;
     }
-    return result / n;
+    return result / n / 3 / 16384.0;
 }
 
 int main(int argc, char **argv) {
@@ -245,7 +245,10 @@ int main(int argc, char **argv) {
     glUniform1i(diff_sampler1_loc, 0);
     glUniform1i(diff_sampler2_loc, 2);
 
-    GLubyte *diff_data = calloc(SIZE * SIZE * 4, sizeof(GLubyte));
+    GLubyte *target_data = calloc(SIZE * SIZE * 4, sizeof(GLubyte));
+    GLubyte *render_data = calloc(SIZE * SIZE * 4, sizeof(GLubyte));
+    glActiveTexture(GL_TEXTURE0);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, target_data);
     double best = 1e9;
 
     while (glfwGetWindowParam(GLFW_OPENED)) {
@@ -266,16 +269,9 @@ int main(int argc, char **argv) {
         draw_triangles(buffer, triangle_position_loc, 2, 3);
         glDisable(GL_BLEND);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, diff_buffer);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glUseProgram(diff_program);
-        draw_rect(
-            position_buffer, diff_position_loc,
-            uv_buffer, diff_uv_loc, 2, 6);
-
-        glActiveTexture(GL_TEXTURE3);
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, diff_data);
-        double score = compute_score(diff_data);
+        glActiveTexture(GL_TEXTURE2);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, render_data);
+        double score = compute_score(target_data, render_data);
         if (score < best) {
             best = score;
             printf("%f\n", score);
@@ -288,18 +284,14 @@ int main(int argc, char **argv) {
                 uv_buffer, quad_uv_loc, 2, 6);
         }
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glUseProgram(quad_program);
-        glUniform1i(quad_sampler_loc, 4);
-        draw_rect(
-            position_buffer, quad_position_loc,
-            uv_buffer, quad_uv_loc, 2, 6);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, best_buffer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, SIZE, SIZE, 0, 0, SIZE, SIZE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
         glfwSwapBuffers();
     }
 
-    free(diff_data);
+    free(render_data);
     glfwTerminate();
     return 0;
 }
