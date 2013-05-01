@@ -223,21 +223,27 @@ int main(int argc, char **argv) {
     glUniform1i(diff_sampler2_loc, 2);
 
     float state[10];
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 10; i++) {
         state[i] = rand_double();
     }
-    state[9] = 0.5;
-    float best = 1e9;
-    int frame = 0;
+    // state[9] = 0.5;
+
+    float max_temp = 0.01;
+    float min_temp = 0.0001;
+    float factor = -log(max_temp / min_temp);
+    int steps = 2000;
+    int step = 0;
+    float energy = 1;
+    float previous_energy = energy;
+    float best_energy = energy;
 
     while (glfwGetWindowParam(GLFW_OPENED)) {
         update_fps(&fps, 1);
-        frame++;
 
         // mutate state
-        int index = rand_int(9);
+        int index = rand_int(10);
         float previous = state[index];
-        state[index] += (rand_double() - 0.5) * 0.5;
+        state[index] += (rand_double() - 0.5) * 0.4;
         state[index] = MAX(0, state[index]);
         state[index] = MIN(1, state[index]);
         update_triangle_buffer(buffer, state);
@@ -270,33 +276,42 @@ int main(int argc, char **argv) {
         glGenerateMipmap(GL_TEXTURE_2D);
         float channels[4] = {0};
         glGetTexImage(GL_TEXTURE_2D, 9, GL_RGBA, GL_FLOAT, channels);
-        float score = (channels[0] + channels[1] + channels[2]) / 3;
+        energy = (channels[0] + channels[1] + channels[2]) / 3;
 
-        // update best texture
-        if (score < best) {
-            best = score;
-            printf("%f\n", score);
-            glBindFramebuffer(GL_FRAMEBUFFER, best_buffer);
-            glClear(GL_COLOR_BUFFER_BIT);
-            glUseProgram(quad_program);
-            glUniform1i(quad_sampler_loc, 2);
-            draw_rect(
-                position_buffer, quad_position_loc,
-                uv_buffer, quad_uv_loc, 2, 6);
-        }
-        else {
+        // annealing
+        float temp = max_temp * exp(factor * step / steps);
+        float change = energy - previous_energy;
+        if (change > 0 && exp(-change / temp) < rand_double()) {
             state[index] = previous;
         }
+        else {
+            previous_energy = energy;
+            if (energy < best_energy) {
+                best_energy = energy;
+                printf("%f\n", best_energy);
+                glBindFramebuffer(GL_FRAMEBUFFER, best_buffer);
+                glClear(GL_COLOR_BUFFER_BIT);
+                glUseProgram(quad_program);
+                glUniform1i(quad_sampler_loc, 2);
+                draw_rect(
+                    position_buffer, quad_position_loc,
+                    uv_buffer, quad_uv_loc, 2, 6);
+            }
+        }
+        step++;
 
         // commit
-        if (frame % 1000 == 0) {
+        if (step == steps) {
             glBindFramebuffer(GL_READ_FRAMEBUFFER, best_buffer);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, base_buffer);
             glBlitFramebuffer(0, 0, SIZE, SIZE, 0, 0, SIZE, SIZE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-            for (int i = 0; i < 9; i++) {
+            for (int i = 0; i < 10; i++) {
                 state[i] = rand_double();
             }
-            best = 1e9;
+            step = 0;
+            energy = 1;
+            previous_energy = energy;
+            best_energy = energy;
         }
 
         // blit best to screen
