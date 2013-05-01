@@ -35,21 +35,6 @@ void make_rect_buffer(GLuint *position_buffer, GLuint *uv_buffer) {
     );
 }
 
-GLuint make_triangle_buffer() {
-    float x = SIZE / 2;
-    float y = SIZE / 2;
-    float m = 200;
-    float data[] = {
-        x + m * cos(RADIANS(30)), y + m * sin(RADIANS(30)),
-        x + m * cos(RADIANS(170)), y + m * sin(RADIANS(170)),
-        x + m * cos(RADIANS(280)), y + m * sin(RADIANS(280)),
-    };
-    GLuint buffer = make_buffer(
-        GL_ARRAY_BUFFER, sizeof(data), data
-    );
-    return buffer;
-}
-
 void update_triangle_buffer(GLuint buffer, float *data) {
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 6, data);
@@ -80,19 +65,6 @@ void draw_triangles(GLuint buffer, GLuint position_loc, int size, int count) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glDrawArrays(GL_TRIANGLES, 0, count);
     glDisableVertexAttribArray(position_loc);
-}
-
-double compute_score(GLubyte *a, GLubyte *b) {
-    double result = 0;
-    int n = SIZE * SIZE;
-    for (int i = 0; i < n; i++) {
-        int j = i * 4;
-        result += (a[j] - b[j]) * (a[j] - b[j]); j++;
-        result += (a[j] - b[j]) * (a[j] - b[j]); j++;
-        result += (a[j] - b[j]) * (a[j] - b[j]); j++;
-        j++;
-    }
-    return result / n / 3 / 16384.0;
 }
 
 int main(int argc, char **argv) {
@@ -235,7 +207,7 @@ int main(int argc, char **argv) {
     GLuint position_buffer;
     GLuint uv_buffer;
     make_rect_buffer(&position_buffer, &uv_buffer);
-    GLuint buffer = make_triangle_buffer();
+    GLuint buffer = make_buffer(GL_ARRAY_BUFFER, sizeof(float) * 6, NULL);
 
     glClearColor(1, 1, 1, 1);
     glViewport(0, 0, SIZE, SIZE);
