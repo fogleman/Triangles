@@ -49,11 +49,7 @@ GLuint make_triangle_buffer() {
     return buffer;
 }
 
-void update_triangle_buffer(GLuint buffer) {
-    float data[6];
-    for (int i = 0; i < 6; i++) {
-        data[i] = rand_int(SIZE);
-    }
+void update_triangle_buffer(GLuint buffer, float *data) {
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 6, data);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -189,6 +185,7 @@ int main(int argc, char **argv) {
         0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glGenerateMipmap(GL_TEXTURE_2D);
 
     GLuint best_texture;
     glGenTextures(1, &best_texture);
@@ -245,15 +242,16 @@ int main(int argc, char **argv) {
     glUniform1i(diff_sampler1_loc, 0);
     glUniform1i(diff_sampler2_loc, 2);
 
-    GLubyte *target_data = calloc(SIZE * SIZE * 4, sizeof(GLubyte));
-    GLubyte *render_data = calloc(SIZE * SIZE * 4, sizeof(GLubyte));
-    glActiveTexture(GL_TEXTURE0);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, target_data);
     double best = 1e9;
+    float vertices[6];
+    for (int i = 0; i < 6; i++) {
+        vertices[i] = rand_int(SIZE);
+    }
 
     while (glfwGetWindowParam(GLFW_OPENED)) {
         update_fps(&fps, 1);
 
+        // blit base texture and render triangle on top of it
         glBindFramebuffer(GL_FRAMEBUFFER, render_buffer);
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(quad_program);
@@ -262,16 +260,34 @@ int main(int argc, char **argv) {
             position_buffer, quad_position_loc,
             uv_buffer, quad_uv_loc, 2, 6);
         glUseProgram(triangle_program);
-        glUniform4f(triangle_color_loc, rand_double(), rand_double(), rand_double(), 0.5);
+        glUniform4f(triangle_color_loc, 1, 0, 0, 0.5);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        update_triangle_buffer(buffer);
+        int index = rand_int(6);
+        float previous = vertices[index];
+        vertices[index] += (rand_double() - 0.5) * 128;
+        vertices[index] = MAX(0, vertices[index]);
+        vertices[index] = MIN(SIZE - 1, vertices[index]);
+        update_triangle_buffer(buffer, vertices);
         draw_triangles(buffer, triangle_position_loc, 2, 3);
         glDisable(GL_BLEND);
 
-        glActiveTexture(GL_TEXTURE2);
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, render_data);
-        double score = compute_score(target_data, render_data);
+        // diff render with target texture
+        glBindFramebuffer(GL_FRAMEBUFFER, diff_buffer);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glUseProgram(diff_program);
+        draw_rect(
+            position_buffer, diff_position_loc,
+            uv_buffer, diff_uv_loc, 2, 6);
+
+        // reduce diff by generating mipmaps
+        glActiveTexture(GL_TEXTURE3);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        float channels[4] = {0};
+        glGetTexImage(GL_TEXTURE_2D, 9, GL_RGBA, GL_FLOAT, channels);
+        float score = (channels[0] + channels[1] + channels[2]) / 3;
+
+        // update best texture
         if (score < best) {
             best = score;
             printf("%f\n", score);
@@ -283,15 +299,17 @@ int main(int argc, char **argv) {
                 position_buffer, quad_position_loc,
                 uv_buffer, quad_uv_loc, 2, 6);
         }
+        else {
+            vertices[index] = previous;
+        }
 
+        // blit best to screen
         glBindFramebuffer(GL_READ_FRAMEBUFFER, best_buffer);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
         glBlitFramebuffer(0, 0, SIZE, SIZE, 0, 0, SIZE, SIZE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
         glfwSwapBuffers();
     }
 
-    free(render_data);
     glfwTerminate();
     return 0;
 }
