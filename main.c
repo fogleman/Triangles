@@ -15,14 +15,12 @@
 #define SIZE 512
 
 void make_rect_buffer(GLuint *position_buffer, GLuint *uv_buffer) {
-    float x = SIZE;
-    float y = SIZE;
+    float x = 1;
+    float y = 1;
     float position_data[] = {
         0, 0, x, 0, 0, y,
         0, y, x, 0, x, y
     };
-    x = 1;
-    y = 1;
     float uv_data[] = {
         0, 0, x, 0, 0, y,
         0, y, x, 0, x, y
@@ -201,17 +199,17 @@ int main(int argc, char **argv) {
         GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, best_texture, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    FPS fps = {0, 0};
-    float matrix[16];
-
     GLuint position_buffer;
     GLuint uv_buffer;
     make_rect_buffer(&position_buffer, &uv_buffer);
     GLuint buffer = make_buffer(GL_ARRAY_BUFFER, sizeof(float) * 6, NULL);
 
+    FPS fps = {0, 0};
+    float matrix[16];
+    mat_ortho(matrix, 0, 1, 0, 1, -1, 1);
+
     glClearColor(1, 1, 1, 1);
     glViewport(0, 0, SIZE, SIZE);
-    mat_ortho(matrix, 0, SIZE, 0, SIZE, -1, 1);
 
     glUseProgram(quad_program);
     glUniformMatrix4fv(quad_matrix_loc, 1, GL_FALSE, matrix);
@@ -224,15 +222,12 @@ int main(int argc, char **argv) {
     glUniform1i(diff_sampler1_loc, 0);
     glUniform1i(diff_sampler2_loc, 2);
 
-    double best = 1e9;
-    float vertices[6];
-    for (int i = 0; i < 6; i++) {
-        vertices[i] = rand_double() * SIZE;
+    float state[10];
+    for (int i = 0; i < 9; i++) {
+        state[i] = rand_double();
     }
-    float colors[3];
-    for (int i = 0; i < 3; i++) {
-        colors[i] = rand_double();
-    }
+    state[9] = 0.5;
+    float best = 1e9;
     int frame = 0;
 
     while (glfwGetWindowParam(GLFW_OPENED)) {
@@ -240,17 +235,12 @@ int main(int argc, char **argv) {
         frame++;
 
         // mutate state
-        int vertex_index = rand_int(6);
-        float vertex_previous = vertices[vertex_index];
-        vertices[vertex_index] += (rand_double() - 0.5) * 256;
-        vertices[vertex_index] = MAX(0, vertices[vertex_index]);
-        vertices[vertex_index] = MIN(SIZE - 1, vertices[vertex_index]);
-        update_triangle_buffer(buffer, vertices);
-        int color_index = rand_int(3);
-        float color_previous = colors[color_index];
-        colors[color_index] += (rand_double() - 0.5) * 0.5;
-        colors[color_index] = MAX(0, colors[color_index]);
-        colors[color_index] = MIN(1, colors[color_index]);
+        int index = rand_int(9);
+        float previous = state[index];
+        state[index] += (rand_double() - 0.5) * 0.5;
+        state[index] = MAX(0, state[index]);
+        state[index] = MIN(1, state[index]);
+        update_triangle_buffer(buffer, state);
 
         // blit base texture and render triangle on top of it
         glBindFramebuffer(GL_FRAMEBUFFER, triangle_buffer);
@@ -261,7 +251,7 @@ int main(int argc, char **argv) {
             position_buffer, quad_position_loc,
             uv_buffer, quad_uv_loc, 2, 6);
         glUseProgram(triangle_program);
-        glUniform4f(triangle_color_loc, colors[0], colors[1], colors[2], 0.5);
+        glUniform4fv(triangle_color_loc, 1, state + 6);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         draw_triangles(buffer, triangle_position_loc, 2, 3);
@@ -295,8 +285,7 @@ int main(int argc, char **argv) {
                 uv_buffer, quad_uv_loc, 2, 6);
         }
         else {
-            vertices[vertex_index] = vertex_previous;
-            colors[color_index] = color_previous;
+            state[index] = previous;
         }
 
         // commit
@@ -304,11 +293,8 @@ int main(int argc, char **argv) {
             glBindFramebuffer(GL_READ_FRAMEBUFFER, best_buffer);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, base_buffer);
             glBlitFramebuffer(0, 0, SIZE, SIZE, 0, 0, SIZE, SIZE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-            for (int i = 0; i < 6; i++) {
-                vertices[i] = rand_double() * SIZE;
-            }
-            for (int i = 0; i < 3; i++) {
-                colors[i] = rand_double();
+            for (int i = 0; i < 9; i++) {
+                state[i] = rand_double();
             }
             best = 1e9;
         }
