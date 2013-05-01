@@ -9,10 +9,11 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include "util.h"
 
-#define SIZE 512
+#define SIZE 256
 
 void make_rect_buffer(GLuint *position_buffer, GLuint *uv_buffer) {
     float x = 1;
@@ -225,29 +226,33 @@ int main(int argc, char **argv) {
     int lod = log(SIZE) / log(2);
     float state[10];
     for (int i = 0; i < 10; i++) {
-        state[i] = 0.5;
+        state[i] = rand_double();
     }
-    // state[9] = 0.5;
+    float previous[10];
+    memcpy(previous, state, 10 * sizeof(float));
 
-    float max_temp = 0.01;
-    float min_temp = 0.00001;
-    float factor = -log(max_temp / min_temp);
-    int steps = 2000;
+    int steps = 10000;
     int step = 0;
-    float energy = 1;
-    float previous_energy = energy;
-    float best_energy = energy;
+    double energy = 1;
+    double previous_energy = energy;
+    double best_energy = energy;
+    double max_temp = best_energy / 2.0;
+    double min_temp = max_temp / 65536.0;
+    double factor = -log(max_temp / min_temp);
 
     while (glfwGetWindowParam(GLFW_OPENED)) {
         update_fps(&fps, 1);
 
         // mutate state
-        int index = rand_int(10);
-        float previous = state[index];
-        state[index] += (rand_double() - 0.5) * 0.4;
-        state[index] = MAX(0, state[index]);
-        state[index] = MIN(1, state[index]);
-        update_triangle_buffer(buffer, state);
+        memcpy(previous, state, 10 * sizeof(float));
+        int count = 1;//rand_int(2) + 1;
+        for (int i = 0; i < count; i++) {
+            int index = rand_int(10);
+            state[index] += (rand_double() - 0.5) * 0.4;
+            state[index] = MAX(0, state[index]);
+            state[index] = MIN(1, state[index]);
+            update_triangle_buffer(buffer, state);
+        }
 
         // blit base texture and render triangle on top of it
         glBindFramebuffer(GL_FRAMEBUFFER, triangle_buffer);
@@ -275,21 +280,24 @@ int main(int argc, char **argv) {
         // reduce diff by generating mipmaps
         glActiveTexture(GL_TEXTURE3);
         glGenerateMipmap(GL_TEXTURE_2D);
-        float channels[4] = {0};
-        glGetTexImage(GL_TEXTURE_2D, lod, GL_RGBA, GL_FLOAT, channels);
-        energy = (channels[0] + channels[1] + channels[2]) / 3;
+        float channels[1024];
+        glGetTexImage(GL_TEXTURE_2D, lod - 4, GL_RGBA, GL_FLOAT, channels);
+        double sum = 0;
+        for (int i = 0; i < 1024; i++) {
+            sum += channels[i];
+        }
+        energy = sum / 1024;
 
         // annealing
-        float temp = max_temp * exp(factor * step / steps);
-        float change = energy - previous_energy;
+        double temp = max_temp * exp(factor * step / steps);
+        double change = energy - previous_energy;
         if (change > 0 && exp(-change / temp) < rand_double()) {
-            state[index] = previous;
+            memcpy(state, previous, 10 * sizeof(float));
         }
         else {
             previous_energy = energy;
             if (energy < best_energy) {
                 best_energy = energy;
-                printf("%f\n", best_energy);
                 glBindFramebuffer(GL_FRAMEBUFFER, best_buffer);
                 glClear(GL_COLOR_BUFFER_BIT);
                 glUseProgram(quad_program);
@@ -303,20 +311,24 @@ int main(int argc, char **argv) {
 
         // commit
         if (step == steps) {
+            printf("Energy: %f\n", best_energy);
             glBindFramebuffer(GL_READ_FRAMEBUFFER, best_buffer);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, base_buffer);
             glBlitFramebuffer(0, 0, SIZE, SIZE, 0, 0, SIZE, SIZE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
             for (int i = 0; i < 10; i++) {
-                state[i] = 0.5;
+                state[i] = rand_double();
             }
             step = 0;
             energy = 1;
             previous_energy = energy;
             best_energy = energy;
+            max_temp = best_energy / 10.0;
+            min_temp = max_temp / 10000.0;
+            factor = -log(max_temp / min_temp);
         }
 
         // blit best to screen
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, best_buffer);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, triangle_buffer);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
         glBlitFramebuffer(0, 0, SIZE, SIZE, 0, 0, SIZE, SIZE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glfwSwapBuffers();
