@@ -9,6 +9,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include "util.h"
 
 #define SIZE 512
@@ -95,6 +96,8 @@ double compute_score(GLubyte *a, GLubyte *b) {
 }
 
 int main(int argc, char **argv) {
+    srand(time(NULL));
+    rand();
     if (!glfwInit()) {
         return -1;
     }
@@ -164,10 +167,10 @@ int main(int argc, char **argv) {
         GL_UNSIGNED_BYTE, empty_data);
     free(empty_data);
 
-    GLuint render_texture;
-    glGenTextures(1, &render_texture);
+    GLuint triangle_texture;
+    glGenTextures(1, &triangle_texture);
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, render_texture);
+    glBindTexture(GL_TEXTURE_2D, triangle_texture);
     glTexImage2D(
         GL_TEXTURE_2D, 0, GL_RGBA,
         SIZE, SIZE,
@@ -198,11 +201,18 @@ int main(int argc, char **argv) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    GLuint render_buffer;
-    glGenFramebuffers(1, &render_buffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, render_buffer);
+    GLuint base_buffer;
+    glGenFramebuffers(1, &base_buffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, base_buffer);
     glFramebufferTexture(
-        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, render_texture, 0);
+        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, base_texture, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    GLuint triangle_buffer;
+    glGenFramebuffers(1, &triangle_buffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, triangle_buffer);
+    glFramebufferTexture(
+        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, triangle_texture, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     GLuint diff_buffer;
@@ -245,14 +255,33 @@ int main(int argc, char **argv) {
     double best = 1e9;
     float vertices[6];
     for (int i = 0; i < 6; i++) {
-        vertices[i] = rand_int(SIZE);
+        vertices[i] = rand_double() * SIZE;
     }
+    float colors[3];
+    for (int i = 0; i < 3; i++) {
+        colors[i] = rand_double();
+    }
+    int frame = 0;
 
     while (glfwGetWindowParam(GLFW_OPENED)) {
         update_fps(&fps, 1);
+        frame++;
+
+        // mutate state
+        int vertex_index = rand_int(6);
+        float vertex_previous = vertices[vertex_index];
+        vertices[vertex_index] += (rand_double() - 0.5) * 256;
+        vertices[vertex_index] = MAX(0, vertices[vertex_index]);
+        vertices[vertex_index] = MIN(SIZE - 1, vertices[vertex_index]);
+        update_triangle_buffer(buffer, vertices);
+        int color_index = rand_int(3);
+        float color_previous = colors[color_index];
+        colors[color_index] += (rand_double() - 0.5) * 0.5;
+        colors[color_index] = MAX(0, colors[color_index]);
+        colors[color_index] = MIN(1, colors[color_index]);
 
         // blit base texture and render triangle on top of it
-        glBindFramebuffer(GL_FRAMEBUFFER, render_buffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, triangle_buffer);
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(quad_program);
         glUniform1i(quad_sampler_loc, 1);
@@ -260,15 +289,9 @@ int main(int argc, char **argv) {
             position_buffer, quad_position_loc,
             uv_buffer, quad_uv_loc, 2, 6);
         glUseProgram(triangle_program);
-        glUniform4f(triangle_color_loc, 1, 0, 0, 0.5);
+        glUniform4f(triangle_color_loc, colors[0], colors[1], colors[2], 0.5);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        int index = rand_int(6);
-        float previous = vertices[index];
-        vertices[index] += (rand_double() - 0.5) * 128;
-        vertices[index] = MAX(0, vertices[index]);
-        vertices[index] = MIN(SIZE - 1, vertices[index]);
-        update_triangle_buffer(buffer, vertices);
         draw_triangles(buffer, triangle_position_loc, 2, 3);
         glDisable(GL_BLEND);
 
@@ -300,7 +323,22 @@ int main(int argc, char **argv) {
                 uv_buffer, quad_uv_loc, 2, 6);
         }
         else {
-            vertices[index] = previous;
+            vertices[vertex_index] = vertex_previous;
+            colors[color_index] = color_previous;
+        }
+
+        // commit
+        if (frame % 1000 == 0) {
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, best_buffer);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, base_buffer);
+            glBlitFramebuffer(0, 0, SIZE, SIZE, 0, 0, SIZE, SIZE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            for (int i = 0; i < 6; i++) {
+                vertices[i] = rand_double() * SIZE;
+            }
+            for (int i = 0; i < 3; i++) {
+                colors[i] = rand_double();
+            }
+            best = 1e9;
         }
 
         // blit best to screen
