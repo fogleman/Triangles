@@ -222,14 +222,15 @@ int main(int argc, char **argv) {
     glUniform1i(diff_sampler1_loc, 0);
     glUniform1i(diff_sampler2_loc, 2);
 
+    int lod = log(SIZE) / log(2);
     float state[10];
     for (int i = 0; i < 10; i++) {
-        state[i] = rand_double();
+        state[i] = 0.5;
     }
     // state[9] = 0.5;
 
     float max_temp = 0.01;
-    float min_temp = 0.0001;
+    float min_temp = 0.00001;
     float factor = -log(max_temp / min_temp);
     int steps = 2000;
     int step = 0;
@@ -275,7 +276,7 @@ int main(int argc, char **argv) {
         glActiveTexture(GL_TEXTURE3);
         glGenerateMipmap(GL_TEXTURE_2D);
         float channels[4] = {0};
-        glGetTexImage(GL_TEXTURE_2D, 9, GL_RGBA, GL_FLOAT, channels);
+        glGetTexImage(GL_TEXTURE_2D, lod, GL_RGBA, GL_FLOAT, channels);
         energy = (channels[0] + channels[1] + channels[2]) / 3;
 
         // annealing
@@ -306,7 +307,7 @@ int main(int argc, char **argv) {
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, base_buffer);
             glBlitFramebuffer(0, 0, SIZE, SIZE, 0, 0, SIZE, SIZE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
             for (int i = 0; i < 10; i++) {
-                state[i] = rand_double();
+                state[i] = 0.5;
             }
             step = 0;
             energy = 1;
